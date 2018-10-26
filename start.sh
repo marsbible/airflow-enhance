@@ -1,0 +1,3 @@
+sudo supervisorctl start airflow_worker
+sudo supervisorctl start airflow_webserver
+sudo supervisorctl start airflow_scheduler

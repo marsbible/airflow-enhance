@@ -1,0 +1,1 @@
+sudo supervisorctl stop airflow_worker airflow_scheduler airflow_webserver

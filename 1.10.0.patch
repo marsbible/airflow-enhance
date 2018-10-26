@@ -1,0 +1,357 @@
+--- lib/python3.6/site-packages/airflow/jobs.py	2018-08-27 23:19:26.000000000 +0800
++++ patch/new/jobs.py	2018-10-25 14:21:52.000000000 +0800
+@@ -564,6 +564,8 @@
+ 
+         self.num_runs = num_runs
+         self.run_duration = run_duration
++        # patch for https://stackoverflow.com/questions/42419834/airbnb-airflow-using-all-system-resources
++        self._processor_poll_interval = 1.0
+ 
+         self.do_pickle = do_pickle
+         super(SchedulerJob, self).__init__(*args, **kwargs)
+@@ -905,7 +907,7 @@
+ 
+             if next_run_date and period_end and period_end <= timezone.utcnow():
+                 next_run = dag.create_dagrun(
+-                    run_id=DagRun.ID_PREFIX + next_run_date.isoformat(),
++                    run_id=DagRun.ID_PREFIX + next_run_date.astimezone(settings.TIMEZONE).isoformat(),
+                     execution_date=next_run_date,
+                     start_date=timezone.utcnow(),
+                     state=State.RUNNING,
+@@ -1724,6 +1726,8 @@
+             loop_end_time = time.time()
+             self.log.debug("Ran scheduling loop in %.2f seconds",
+                            loop_end_time - loop_start_time)
++            # patch for https://stackoverflow.com/questions/42419834/airbnb-airflow-using-all-system-resources
++            time.sleep(self._processor_poll_interval)
+ 
+             # Exit early for a test mode
+             if processor_manager.max_runs_reached():
+@@ -2094,7 +2098,7 @@
+         :type session: Session
+         :return: a DagRun in state RUNNING or None
+         """
+-        run_id = BackfillJob.ID_FORMAT_PREFIX.format(run_date.isoformat())
++        run_id = BackfillJob.ID_FORMAT_PREFIX.format(run_date.astimezone(settings.TIMEZONE).isoformat())
+ 
+         # consider max_active_runs but ignore when running subdags
+         respect_dag_max_active_limit = (True
+diff -ur lib/python3.6/site-packages/airflow/www/app.py patch/new/www/app.py
+--- lib/python3.6/site-packages/airflow/www/app.py	2018-08-27 23:19:26.000000000 +0800
++++ patch/new/www/app.py	2018-10-24 14:27:12.000000000 +0800
+@@ -7,9 +7,9 @@
+ # to you under the Apache License, Version 2.0 (the
+ # "License"); you may not use this file except in compliance
+ # with the License.  You may obtain a copy of the License at
+-# 
++#
+ #   http://www.apache.org/licenses/LICENSE-2.0
+-# 
++#
+ # Unless required by applicable law or agreed to in writing,
+ # software distributed under the License is distributed on an
+ # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+@@ -68,6 +68,8 @@
+     with app.app_context():
+         from airflow.www import views
+ 
++        app.add_template_global(views.utc2local, name='utc2local')
++
+         admin = Admin(
+             app, name='Airflow',
+             static_url_path='/admin',
+diff -ur lib/python3.6/site-packages/airflow/www/templates/admin/master.html patch/new/www/templates/admin/master.html
+--- lib/python3.6/site-packages/airflow/www/templates/admin/master.html	2018-06-06 07:28:37.000000000 +0800
++++ patch/new/www/templates/admin/master.html	2018-10-24 16:16:32.000000000 +0800
+@@ -28,11 +28,12 @@
+ <script src="{{ url_for('static', filename='jqClock.min.js') }}" type="text/javascript"></script>
+ <script>
+     x = new Date()
+-    var UTCseconds = (x.getTime() + x.getTimezoneOffset()*60*1000);
++    //var UTCseconds = (x.getTime() + x.getTimezoneOffset()*60*1000);
++    var Localseconds = (x.getTime());
+     $("#clock").clock({
+         "dateFormat":"Y-m-d ",
+-        "timeFormat":"H:i:s %UTC%",
+-        "timestamp":UTCseconds
++        "timeFormat":"H:i:s",
++        "timestamp":Localseconds
+     }).click(function(){
+         alert('{{ hostname }}');
+     });
+diff -ur lib/python3.6/site-packages/airflow/www/templates/airflow/dags.html patch/new/www/templates/airflow/dags.html
+--- lib/python3.6/site-packages/airflow/www/templates/airflow/dags.html	2018-08-27 23:19:26.000000000 +0800
++++ patch/new/www/templates/airflow/dags.html	2018-10-24 11:07:43.000000000 +0800
+@@ -122,9 +122,9 @@
+                     {% set last_run = dag.get_last_dagrun(include_externally_triggered=True) %}
+                     {% if last_run and last_run.execution_date %}
+                       <a href="{{ url_for('airflow.graph', dag_id=dag.dag_id, execution_date=last_run.execution_date) }}">
+-                        {{ last_run.execution_date.strftime("%Y-%m-%d %H:%M") }}
++                        {{ utc2local(last_run.execution_date).strftime("%Y-%m-%d %H:%M") }}
+                       </a>
+-                      <span aria-hidden="true" id="statuses_info" title="Start Date: {{ last_run.start_date.strftime("%Y-%m-%d %H:%M") }}" class="glyphicon glyphicon-info-sign"></span>
++                      <span aria-hidden="true" id="statuses_info" title="Start Date: {{ utc2local(last_run.start_date).strftime("%Y-%m-%d %H:%M") }}" class="glyphicon glyphicon-info-sign"></span>
+                     {% endif %}
+                   {% endif %}
+                 </td>
+diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
+--- lib/python3.6/site-packages/airflow/www/views.py	2018-08-27 23:19:26.000000000 +0800
++++ patch/new/www/views.py	2018-10-25 17:11:38.000000000 +0800
+@@ -112,6 +112,32 @@
+     # filter_by_owner if authentication is enabled and filter_by_owner is true
+     FILTER_BY_OWNER = not current_app.config['LOGIN_DISABLED']
+ 
++from datetime import datetime as dtt
++def utc2local(utc):
++    return utc.astimezone(settings.TIMEZONE) if utc != None else None
++
++def local2utc(local):
++    return local.astimezone(timezone.utc) if local != None else None
++
++def utcstr2localstr(utcstr):
++    utc = pendulum.parse(utcstr)
++    return utc.astimezone(settings.TIMEZONE).isoformat() if utc != None else None
++
++def localstr2utcstr(localstr):
++    local = pendulum.parse(localstr)
++    return local.astimezone(timezone.utc).isoformat() if local != None else None
++
++def set_date(dr):
++    if dr["execution_date"] is not None:
++        dr["execution_date"] = utcstr2localstr(dr["execution_date"])
++
++    if dr["start_date"] is not None:
++        dr["start_date"] = utcstr2localstr(dr["start_date"])
++
++    if dr["end_date"] is not None:
++        dr["end_date"] = utcstr2localstr(dr["end_date"])
++
++    return dr
+ 
+ def dag_link(v, c, m, p):
+     if m.dag_id is None:
+@@ -193,8 +219,8 @@
+ 
+ def datetime_f(v, c, m, p):
+     attr = getattr(m, p)
+-    dttm = attr.isoformat() if attr else ''
+-    if timezone.utcnow().isoformat()[:4] == dttm[:4]:
++    dttm = utc2local(attr).isoformat() if attr else ''
++    if utc2local(timezone.utcnow()).isoformat()[:4] == dttm[:4]:
+         dttm = dttm[5:]
+     return Markup("<nobr>{}</nobr>".format(dttm))
+ 
+@@ -322,13 +348,13 @@
+ def get_date_time_num_runs_dag_runs_form_data(request, session, dag):
+     dttm = request.args.get('execution_date')
+     if dttm:
+-        dttm = pendulum.parse(dttm)
++        dttm = local2utc(timezone.parse(dttm))
+     else:
+         dttm = dag.latest_execution_date or timezone.utcnow()
+ 
+     base_date = request.args.get('base_date')
+     if base_date:
+-        base_date = timezone.parse(base_date)
++        base_date = local2utc(timezone.parse(base_date))
+     else:
+         # The DateTimeField widget truncates milliseconds and would loose
+         # the first dag run. Round to next second.
+@@ -351,7 +377,7 @@
+     dr_choices = []
+     dr_state = None
+     for dr in drs:
+-        dr_choices.append((dr.execution_date.isoformat(), dr.run_id))
++        dr_choices.append((utc2local(dr.execution_date).isoformat(), dr.run_id))
+         if dttm == dr.execution_date:
+             dr_state = dr.state
+ 
+@@ -363,9 +389,9 @@
+ 
+     return {
+         'dttm': dttm,
+-        'base_date': base_date,
++        'base_date': utc2local(base_date),
+         'num_runs': num_runs,
+-        'execution_date': dttm.isoformat(),
++        'execution_date': utc2local(dttm).isoformat(),
+         'dr_choices': dr_choices,
+         'dr_state': dr_state,
+     }
+@@ -374,6 +400,11 @@
+     def is_visible(self):
+         return False
+ 
++
++class Airflow(BaseView):
++    def is_visible(self):
++        return False
++
+     @expose('/')
+     @login_required
+     def index(self):
+@@ -1057,7 +1088,7 @@
+             return redirect(origin)
+ 
+         execution_date = timezone.utcnow()
+-        run_id = "manual__{0}".format(execution_date.isoformat())
++        run_id = "manual__{0}".format(execution_date.astimezone(settings.TIMEZONE).isoformat())
+ 
+         dr = DagRun.find(dag_id=dag_id, run_id=run_id)
+         if dr:
+@@ -1294,7 +1325,7 @@
+         num_runs = int(num_runs) if num_runs else default_dag_run
+ 
+         if base_date:
+-            base_date = timezone.parse(base_date)
++            base_date = local2utc(timezone.parse(base_date))
+         else:
+             base_date = dag.latest_execution_date or timezone.utcnow()
+ 
+@@ -1309,7 +1340,7 @@
+             .all()
+         )
+         dag_runs = {
+-            dr.execution_date: alchemy_to_dict(dr) for dr in dag_runs}
++            dr.execution_date: set_date(alchemy_to_dict(dr)) for dr in dag_runs}
+ 
+         dates = sorted(list(dag_runs.keys()))
+         max_date = max(dates) if dates else None
+@@ -1353,13 +1384,15 @@
+                             tid["start_date"] is not None):
+                     d = timezone.utcnow() - pendulum.parse(tid["start_date"])
+                     tid["duration"] = d.total_seconds()
++
++                set_date(tid)
+                 return tid
+ 
+             return {
+                 'name': task.task_id,
+                 'instances': [
+                     set_duration(task_instances.get((task.task_id, d))) or {
+-                        'execution_date': d.isoformat(),
++                        'execution_date': utcstr2localstr(d.isoformat()),
+                         'task_id': task.task_id
+                     }
+                     for d in dates],
+@@ -1368,8 +1401,8 @@
+                 'operator': task.task_type,
+                 'retries': task.retries,
+                 'owner': task.owner,
+-                'start_date': task.start_date,
+-                'end_date': task.end_date,
++                'start_date': utc2local(task.start_date),
++                'end_date': utc2local(task.end_date),
+                 'depends_on_past': task.depends_on_past,
+                 'ui_color': task.ui_color,
+             }
+@@ -1378,14 +1411,14 @@
+             'name': '[DAG]',
+             'children': [recurse_nodes(t, set()) for t in dag.roots],
+             'instances': [
+-                dag_runs.get(d) or {'execution_date': d.isoformat()}
++                dag_runs.get(d) or {'execution_date': utcstr2localstr(d.isoformat())}
+                 for d in dates],
+         }
+ 
+         data = json.dumps(data, indent=4, default=json_ser)
+         session.commit()
+ 
+-        form = DateTimeWithNumRunsForm(data={'base_date': max_date,
++        form = DateTimeWithNumRunsForm(data={'base_date': utc2local(max_date),
+                                              'num_runs': num_runs})
+         return self.render(
+             'airflow/tree.html',
+@@ -1460,7 +1493,7 @@
+         form.execution_date.choices = dt_nr_dr_data['dr_choices']
+ 
+         task_instances = {
+-            ti.task_id: alchemy_to_dict(ti)
++            ti.task_id: set_date(alchemy_to_dict(ti))
+             for ti in dag.get_task_instances(session, dttm, dttm)}
+         tasks = {
+             t.task_id: {
+@@ -1507,7 +1540,7 @@
+         num_runs = int(num_runs) if num_runs else default_dag_run
+ 
+         if base_date:
+-            base_date = pendulum.parse(base_date)
++            base_date = local2utc(timezone.parse(base_date))
+         else:
+             base_date = dag.latest_execution_date or timezone.utcnow()
+ 
+@@ -1583,7 +1616,7 @@
+ 
+         session.commit()
+ 
+-        form = DateTimeWithNumRunsForm(data={'base_date': max_date,
++        form = DateTimeWithNumRunsForm(data={'base_date': utc2local(max_date),
+                                              'num_runs': num_runs})
+         chart.buildcontent()
+         cum_chart.buildcontent()
+@@ -1615,7 +1648,7 @@
+         num_runs = int(num_runs) if num_runs else default_dag_run
+ 
+         if base_date:
+-            base_date = pendulum.parse(base_date)
++            base_date = local2utc(timezone.parse(base_date))
+         else:
+             base_date = dag.latest_execution_date or timezone.utcnow()
+ 
+@@ -1652,7 +1685,7 @@
+ 
+         session.commit()
+ 
+-        form = DateTimeWithNumRunsForm(data={'base_date': max_date,
++        form = DateTimeWithNumRunsForm(data={'base_date': utc2local(max_date),
+                                              'num_runs': num_runs})
+ 
+         chart.buildcontent()
+@@ -1679,7 +1712,7 @@
+         num_runs = int(num_runs) if num_runs else default_dag_run
+ 
+         if base_date:
+-            base_date = pendulum.parse(base_date)
++            base_date = local2utc(timezone.parse(base_date))
+         else:
+             base_date = dag.latest_execution_date or timezone.utcnow()
+ 
+@@ -1731,7 +1764,7 @@
+         dates = sorted(list({ti.execution_date for ti in tis}))
+         max_date = max([ti.execution_date for ti in tis]) if dates else None
+ 
+-        form = DateTimeWithNumRunsForm(data={'base_date': max_date,
++        form = DateTimeWithNumRunsForm(data={'base_date': utc2local(max_date),
+                                              'num_runs': num_runs})
+         chart.buildcontent()
+         return self.render(
+@@ -1821,14 +1854,14 @@
+         for ti in tis:
+             end_date = ti.end_date if ti.end_date else timezone.utcnow()
+             tasks.append({
+-                'startDate': wwwutils.epoch(ti.start_date),
+-                'endDate': wwwutils.epoch(end_date),
+-                'isoStart': ti.start_date.isoformat()[:-4],
+-                'isoEnd': end_date.isoformat()[:-4],
++                'startDate': wwwutils.epoch(utc2local(ti.start_date)),
++                'endDate': wwwutils.epoch(utc2local(end_date)),
++                'isoStart': utc2local(ti.start_date).isoformat(),
++                'isoEnd': utc2local(end_date).isoformat(),
+                 'taskName': ti.task_id,
+-                'duration': "{}".format(end_date - ti.start_date)[:-4],
++                'duration': "{}".format(end_date - ti.start_date),
+                 'status': ti.state,
+-                'executionDate': ti.execution_date.isoformat(),
++                'executionDate': utc2local(ti.execution_date).isoformat(),
+             })
+         states = {ti.state: ti.state for ti in tis}
+         data = {
+@@ -1843,7 +1876,7 @@
+         return self.render(
+             'airflow/gantt.html',
+             dag=dag,
+-            execution_date=dttm.isoformat(),
++            execution_date=utc2local(dttm).isoformat(),
+             form=form,
+             data=json.dumps(data, indent=2),
+             base_date='',
