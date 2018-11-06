@@ -83,7 +83,7 @@ LOGGING_CONFIG = {
     'loggers': {
         'airflow.processor': {
             'handlers': ['processor'],
-            'level': 'INFO',
+            'level': 'WARN',
             'propagate': False,
         },
         'airflow.task': {

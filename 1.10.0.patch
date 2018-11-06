@@ -95,9 +95,9 @@ diff -ur lib/python3.6/site-packages/airflow/www/templates/airflow/dags.html pat
                    {% endif %}
                  </td>
 diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
---- lib/python3.6/site-packages/airflow/www/views.py	2018-08-27 23:19:26.000000000 +0800
-+++ patch/new/www/views.py	2018-10-25 17:11:38.000000000 +0800
-@@ -112,6 +112,32 @@
+--- lib/python3.6/site-packages/airflow/www/views.py	2018-11-05 21:49:36.771310225 +0800
++++ patch/new/views.py	2018-11-05 21:48:16.710212268 +0800
+@@ -112,6 +112,35 @@
      # filter_by_owner if authentication is enabled and filter_by_owner is true
      FILTER_BY_OWNER = not current_app.config['LOGIN_DISABLED']
  
@@ -117,6 +117,9 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
 +    return local.astimezone(timezone.utc).isoformat() if local != None else None
 +
 +def set_date(dr):
++    if dr == None:
++        return dr 
++
 +    if dr["execution_date"] is not None:
 +        dr["execution_date"] = utcstr2localstr(dr["execution_date"])
 +
@@ -130,7 +133,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
  
  def dag_link(v, c, m, p):
      if m.dag_id is None:
-@@ -193,8 +219,8 @@
+@@ -193,8 +222,8 @@
  
  def datetime_f(v, c, m, p):
      attr = getattr(m, p)
@@ -141,7 +144,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
          dttm = dttm[5:]
      return Markup("<nobr>{}</nobr>".format(dttm))
  
-@@ -322,13 +348,13 @@
+@@ -322,13 +351,13 @@
  def get_date_time_num_runs_dag_runs_form_data(request, session, dag):
      dttm = request.args.get('execution_date')
      if dttm:
@@ -157,7 +160,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
      else:
          # The DateTimeField widget truncates milliseconds and would loose
          # the first dag run. Round to next second.
-@@ -351,7 +377,7 @@
+@@ -351,7 +380,7 @@
      dr_choices = []
      dr_state = None
      for dr in drs:
@@ -166,7 +169,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
          if dttm == dr.execution_date:
              dr_state = dr.state
  
-@@ -363,9 +389,9 @@
+@@ -363,9 +392,9 @@
  
      return {
          'dttm': dttm,
@@ -178,7 +181,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
          'dr_choices': dr_choices,
          'dr_state': dr_state,
      }
-@@ -374,6 +400,11 @@
+@@ -374,6 +403,11 @@
      def is_visible(self):
          return False
  
@@ -190,7 +193,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
      @expose('/')
      @login_required
      def index(self):
-@@ -1057,7 +1088,7 @@
+@@ -1057,7 +1091,7 @@
              return redirect(origin)
  
          execution_date = timezone.utcnow()
@@ -199,7 +202,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
  
          dr = DagRun.find(dag_id=dag_id, run_id=run_id)
          if dr:
-@@ -1294,7 +1325,7 @@
+@@ -1294,7 +1328,7 @@
          num_runs = int(num_runs) if num_runs else default_dag_run
  
          if base_date:
@@ -208,7 +211,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
          else:
              base_date = dag.latest_execution_date or timezone.utcnow()
  
-@@ -1309,7 +1340,7 @@
+@@ -1309,7 +1343,7 @@
              .all()
          )
          dag_runs = {
@@ -217,7 +220,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
  
          dates = sorted(list(dag_runs.keys()))
          max_date = max(dates) if dates else None
-@@ -1353,13 +1384,15 @@
+@@ -1353,13 +1387,15 @@
                              tid["start_date"] is not None):
                      d = timezone.utcnow() - pendulum.parse(tid["start_date"])
                      tid["duration"] = d.total_seconds()
@@ -234,7 +237,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
                          'task_id': task.task_id
                      }
                      for d in dates],
-@@ -1368,8 +1401,8 @@
+@@ -1368,8 +1404,8 @@
                  'operator': task.task_type,
                  'retries': task.retries,
                  'owner': task.owner,
@@ -245,7 +248,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
                  'depends_on_past': task.depends_on_past,
                  'ui_color': task.ui_color,
              }
-@@ -1378,14 +1411,14 @@
+@@ -1378,14 +1414,14 @@
              'name': '[DAG]',
              'children': [recurse_nodes(t, set()) for t in dag.roots],
              'instances': [
@@ -262,7 +265,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
                                               'num_runs': num_runs})
          return self.render(
              'airflow/tree.html',
-@@ -1460,7 +1493,7 @@
+@@ -1460,7 +1496,7 @@
          form.execution_date.choices = dt_nr_dr_data['dr_choices']
  
          task_instances = {
@@ -271,7 +274,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
              for ti in dag.get_task_instances(session, dttm, dttm)}
          tasks = {
              t.task_id: {
-@@ -1507,7 +1540,7 @@
+@@ -1507,7 +1543,7 @@
          num_runs = int(num_runs) if num_runs else default_dag_run
  
          if base_date:
@@ -280,7 +283,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
          else:
              base_date = dag.latest_execution_date or timezone.utcnow()
  
-@@ -1583,7 +1616,7 @@
+@@ -1583,7 +1619,7 @@
  
          session.commit()
  
@@ -289,7 +292,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
                                               'num_runs': num_runs})
          chart.buildcontent()
          cum_chart.buildcontent()
-@@ -1615,7 +1648,7 @@
+@@ -1615,7 +1651,7 @@
          num_runs = int(num_runs) if num_runs else default_dag_run
  
          if base_date:
@@ -298,7 +301,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
          else:
              base_date = dag.latest_execution_date or timezone.utcnow()
  
-@@ -1652,7 +1685,7 @@
+@@ -1652,7 +1688,7 @@
  
          session.commit()
  
@@ -307,7 +310,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
                                               'num_runs': num_runs})
  
          chart.buildcontent()
-@@ -1679,7 +1712,7 @@
+@@ -1679,7 +1715,7 @@
          num_runs = int(num_runs) if num_runs else default_dag_run
  
          if base_date:
@@ -316,7 +319,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
          else:
              base_date = dag.latest_execution_date or timezone.utcnow()
  
-@@ -1731,7 +1764,7 @@
+@@ -1731,7 +1767,7 @@
          dates = sorted(list({ti.execution_date for ti in tis}))
          max_date = max([ti.execution_date for ti in tis]) if dates else None
  
@@ -325,7 +328,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
                                               'num_runs': num_runs})
          chart.buildcontent()
          return self.render(
-@@ -1821,14 +1854,14 @@
+@@ -1821,14 +1857,14 @@
          for ti in tis:
              end_date = ti.end_date if ti.end_date else timezone.utcnow()
              tasks.append({
@@ -346,7 +349,7 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
              })
          states = {ti.state: ti.state for ti in tis}
          data = {
-@@ -1843,7 +1876,7 @@
+@@ -1843,7 +1879,7 @@
          return self.render(
              'airflow/gantt.html',
              dag=dag,
@@ -355,3 +358,16 @@ diff -ur lib/python3.6/site-packages/airflow/www/views.py patch/new/www/views.py
              form=form,
              data=json.dumps(data, indent=2),
              base_date='',
+diff -ur lib/python3.6/site-packages/airflow/bin/cli.py  patch/new/cli.py
+--- lib/python3.6/site-packages/airflow/bin/cli.py	2018-11-06 15:25:42.778982800 +0800
++++ patch/new/cli.py	2018-11-06 15:28:31.512560700 +0800
+@@ -109,8 +109,8 @@
+     formatter = logging.Formatter(settings.SIMPLE_LOG_FORMAT)
+     handler.setFormatter(formatter)
+     root.addHandler(handler)
+-    root.setLevel(settings.LOGGING_LEVEL)
+-
++    # patch: 不要设置成info，应该按照log config里root logger的配置
++    # root.setLevel(settings.LOGGING_LEVEL)
+     return handler.stream
+ 

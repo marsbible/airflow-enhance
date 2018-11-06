@@ -26,7 +26,7 @@ from datetime import timedelta
 
 
 args = {
-    'owner': 'maob1',
+    'owner': 'airflow',
     'start_date': airflow.utils.dates.days_ago(2)
 }
 

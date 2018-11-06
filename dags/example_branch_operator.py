@@ -25,7 +25,7 @@ import random
 
 
 args = {
-    'owner': 'mabo1',
+    'owner': 'airflow',
     'start_date': airflow.utils.dates.days_ago(2)
 }
 

@@ -1,3 +1,5 @@
+#! /bin/bash
+
 pip install kazoo
 pip install thrift
 pip install hbase-thrift
